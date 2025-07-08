@@ -57,6 +57,7 @@
 3.  **ติดตั้ง Dependencies:**
     ```bash
     pip install django djangorestframework channels channels-redis daphne djangorestframework-simplejwt django-cors-headers
+    # หรือ pip install -r requirements.txt
     ```
 
 4.  **ตั้งค่าฐานข้อมูลและ Migrate:**
@@ -92,13 +93,13 @@
 เนื่องจากหน้าเว็บทดสอบ (`realtime_tasks.html`) เป็นไฟล์ธรรมดา เราต้องรัน Web Server ง่ายๆ เพื่อให้เบราว์เซอร์อนุญาตการเชื่อมต่อ WebSocket
 
 1.  **เปิด Terminal ใหม่**
-2.  `cd` ไปยังโฟลเดอร์ที่เก็บไฟล์ `realtime_tasks.html`
+2.  `cd` ไปยังโฟลเดอร์ที่เก็บไฟล์ `index.html`
 3.  **รัน Local Web Server:** (เราจะรันที่ Port 8001 เพื่อไม่ให้ซ้ำกับ Django)
     ```bash
     python -m http.server 8001
     ```
 4.  **เปิดเบราว์เซอร์** แล้วเข้าไปที่ URL:
-    > **http://127.0.0.1:8001/realtime_tasks.html**
+    > **http://127.0.0.1:8001/index.html**
 
 5.  **ทดสอบการทำงาน:**
     - Login ทั้งฝั่ง `ADMIN` และ `ADMIN_LIMITED`
