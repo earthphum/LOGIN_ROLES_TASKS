@@ -16,6 +16,7 @@
         .status-completed { background-color: #2ecc71; }
         .token-display { font-size: 0.8em; word-break: break-all; }
         pre { background-color: #f0f0f0; padding: 1em; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
+        .task-actions button { margin-right: 0.5rem; }
     </style>
 </head>
 <body>
@@ -109,14 +110,12 @@
 
         switch (action) {
             case 'new_task':
-                // เมื่อมี task ใหม่ ให้แสดงที่ฝั่ง Admin และอาจจะที่ฝั่ง Limited ถ้าเขาเป็นคนสร้าง
                 addOrUpdateAdminTask(task);
                 addOrUpdateLimitedTask(task);
                 break;
             case 'task_approved':
             case 'task_progress_update':
             case 'task_rejected':
-                 // อัปเดตทั้งสองฝั่ง เพราะสถานะเปลี่ยน
                 addOrUpdateAdminTask(task);
                 addOrUpdateLimitedTask(task);
                 break;
@@ -144,25 +143,29 @@
             taskEl = document.createElement('div');
             taskEl.className = 'task-item';
             taskEl.id = `admin-task-${task.id}`;
-            // แก้ไข: เพิ่ม Task ต่อจาก h3 แทนการเขียนทับทั้งหมด
             adminTaskList.appendChild(taskEl);
         }
 
-        let approveBtn = `<button class="approve-btn" data-id="${task.id}">อนุมัติ</button>`;
-        if (task.status !== 'PENDING_APPROVAL') {
-            approveBtn = '';
+        // --- [แก้ไข] เพิ่มปุ่มปฏิเสธ และจัดกลุ่มปุ่ม ---
+        let actionBtns = '';
+        if (task.status === 'PENDING_APPROVAL') {
+            actionBtns = `
+                <div class="task-actions">
+                    <button class="approve-btn" data-id="${task.id}">อนุมัติ</button>
+                    <button class="reject-btn secondary outline" data-id="${task.id}">ปฏิเสธ</button>
+                </div>
+            `;
         }
 
         taskEl.innerHTML = `
             <header><strong>Task #${task.id}:</strong> ${task.title}</header>
             <p>Status: <strong>${task.status}</strong> | Requester: ${task.requester.username}</p>
             ${renderTaskProgress(task.subtasks)}
-            ${approveBtn}
+            ${actionBtns}
         `;
     }
 
     function addOrUpdateLimitedTask(task) {
-        // Logic เดิม: แสดง Task ที่ฝั่ง Limited เฉพาะเมื่อเขาเป็นคนสร้าง
         if(task.requester.username !== document.querySelector('#login-limited-form input[name="username"]').value) {
             return;
         }
@@ -184,17 +187,17 @@
             });
         }
         
+        // Logic เดิมสำหรับแสดงเหตุผลที่ถูกปฏิเสธ (ถูกต้องอยู่แล้ว)
         let statusMessage = `Status: <strong>${task.status}</strong>`;
         if(task.status === 'REJECTED') {
             statusMessage += `<br><small style="color: red;">Reason: ${task.rejection_reason || 'N/A'}</small>`;
         }
 
-
         taskEl.innerHTML = `
              <header><strong>Task #${task.id}:</strong> ${task.title}</header>
              <p>${statusMessage}</p>
              ${renderTaskProgress(task.subtasks)}
-             ${workBtns}
+             <div class="task-actions">${workBtns}</div>
         `;
     }
 
@@ -209,7 +212,6 @@
         
         try {
             const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-            // จัดการกับ response ที่ไม่มี content (เช่น 204 No Content)
             if (response.status === 204) {
                 log(`API ${method}`, {endpoint, request: body, response: {status: 204}});
                 return {status: 204};
@@ -224,25 +226,14 @@
         }
     }
 
-    // --- [เพิ่มฟังก์ชันนี้] ---
-    /**
-     * ดึงข้อมูล Task ทั้งหมดที่มีอยู่มาแสดงผลหลังจาก Login
-     * @param {string} token - JWT Token ของผู้ใช้
-     */
     async function fetchInitialTasks(token) {
         if (!token) return;
-
-        // ล้างรายการ Task เดิมออกก่อน เพื่อป้องกันข้อมูลซ้ำซ้อนหากมีการ Login ใหม่
         adminTaskList.innerHTML = '<h3>New Tasks for Approval</h3>';
         limitedTaskList.innerHTML = '<h3>My Tasks</h3>';
-
         try {
             log('API GET', { endpoint: '/tasks/', message: 'Fetching initial tasks...' });
             const tasks = await apiRequest('/tasks/', 'GET', token);
-            
             if (Array.isArray(tasks)) {
-                // วนลูปแสดงผลทุก Task ที่ได้รับมา
-                // ฟังก์ชัน addOrUpdate... จะมี logic ภายในเพื่อกรองเองว่าควรแสดงที่ไหน
                 tasks.forEach(task => {
                     addOrUpdateAdminTask(task);
                     addOrUpdateLimitedTask(task);
@@ -254,7 +245,6 @@
         }
     }
     
-    // --- [แก้ไขส่วนนี้] ---
     // Login Handlers
     document.getElementById('login-limited-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -264,7 +254,6 @@
             if (response && response.access) {
                 tokens.limited = response.access;
                 document.getElementById('token-limited').textContent = tokens.limited;
-                // เรียกใช้ฟังก์ชันเพื่อดึง Task ทั้งหมดมาแสดง
                 fetchInitialTasks(tokens.limited);
             }
         } catch(error) {
@@ -280,14 +269,12 @@
             if (response && response.access) {
                 tokens.admin = response.access;
                 document.getElementById('token-admin').textContent = tokens.admin;
-                // เรียกใช้ฟังก์ชันเพื่อดึง Task ทั้งหมดมาแสดง
                 fetchInitialTasks(tokens.admin);
             }
         } catch(error) {
             alert('Login (Admin) ผิดพลาด กรุณาตรวจสอบ username/password');
         }
     });
-    // --- [สิ้นสุดส่วนที่แก้ไข] ---
 
     // Create Task (ADMIN_LIMITED)
     document.getElementById('create-task-form').addEventListener('submit', async (e) => {
@@ -298,12 +285,26 @@
         e.target.reset();
     });
 
-    // Approve Task (ADMIN)
+    // --- [แก้ไข] เพิ่ม Logic การปฏิเสธ Task ---
+    // Approve or Reject Task (ADMIN)
     adminTaskList.addEventListener('click', async (e) => {
+        // Approve
         if (e.target.classList.contains('approve-btn')) {
-            if (!tokens.admin) { alert('กรุณา Login เป็น ADMIN ก่อน'); return; }
+            if (!tokens.admin) { return alert('กรุณา Login เป็น ADMIN ก่อน'); }
             const taskId = e.target.dataset.id;
             await apiRequest(`/tasks/${taskId}/approve/`, 'POST', tokens.admin);
+        }
+
+        // Reject
+        if (e.target.classList.contains('reject-btn')) {
+            if (!tokens.admin) { return alert('กรุณา Login เป็น ADMIN ก่อน'); }
+            const taskId = e.target.dataset.id;
+            const reason = prompt('กรุณาใส่เหตุผลที่ปฏิเสธ:');
+            
+            // ดำเนินการต่อเมื่อผู้ใช้กรอกเหตุผลแล้วกด OK เท่านั้น
+            if (reason) { 
+                await apiRequest(`/tasks/${taskId}/reject/`, 'POST', tokens.admin, { reason: reason });
+            }
         }
     });
 
@@ -314,7 +315,6 @@
             const model = e.target.dataset.model;
             const id = e.target.dataset.id;
             let endpoint = model === 'customerprofile' ? `/data/customers/${id}/` : `/data/vehicles/${id}/`;
-            // PATCH with dummy data to trigger the signal
             await apiRequest(endpoint, 'PATCH', tokens.limited, { 'description': `Work done at ${new Date()}`});
          }
     });
