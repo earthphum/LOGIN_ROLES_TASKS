@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Task Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        body { padding-bottom: 5rem; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; }
+        .task-item { border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem; border-radius: 8px; background-color: #fff; }
+        .task-item header { margin-bottom: 0.5rem; font-size: 1.1em;}
+        .progress-bar { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.9em; margin-top: 1rem;}
+        .progress-bar span { padding: 5px 10px; border-radius: 5px; color: white; }
+        .status-pending { background-color: #e67e22; }
+        .status-completed { background-color: #2ecc71; }
+        .token-display { font-size: 0.8em; word-break: break-all; }
+        pre { background-color: #f0f0f0; padding: 1em; white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+<main class="container">
+    <h1>Real-time Task Dashboard</h1>
+
+    <section id="login-section">
+        <div class="grid">
+            <article>
+                <header><h3>👤 Login (ADMIN_LIMITED)</h3></header>
+                <form id="login-limited-form">
+                    <input type="text" name="username" value="admin_limited_user" required>
+                    <input type="password" name="password" value="password123" required>
+                    <button type="submit">Login (Limited)</button>
+                </form>
+                <details>
+                    <summary>ดู Token</summary>
+                    <small class="token-display" id="token-limited">ยังไม่มี Token</small>
+                </details>
+            </article>
+            <article>
+                <header><h3>👑 Login (ADMIN)</h3></header>
+                <form id="login-admin-form">
+                    <input type="text" name="username" value="admin_user" required>
+                    <input type="password" name="password" value="password123" required>
+                    <button type="submit">Login (Admin)</button>
+                </form>
+                 <details>
+                    <summary>ดู Token</summary>
+                    <small class="token-display" id="token-admin">ยังไม่มี Token</small>
+                </details>
+            </article>
+        </div>
+    </section>
+    <hr>
+    
+    <article>
+        <header><strong>Log / ผลลัพธ์ API & WebSocket</strong></header>
+        <pre id="api-response">ผลลัพธ์จะแสดงที่นี่...</pre>
+    </article>
+
+
+    <div class="dashboard">
+        <section id="limited-side">
+            <article>
+                <header><h2>ฝั่ง ADMIN_LIMITED</h2></header>
+                <form id="create-task-form">
+                    <input type="text" id="task-title" placeholder="ชื่องาน" required>
+                    <button type="submit">สร้าง Task ใหม่</button>
+                </form>
+                <hr>
+                <div id="limited-task-list"><h3>My Tasks</h3></div>
+            </article>
+        </section>
+
+        <section id="admin-side">
+            <article>
+                <header><h2>ฝั่ง ADMIN</h2></header>
+                <div id="admin-task-list"><h3>New Tasks for Approval</h3></div>
+            </article>
+        </section>
+    </div>
+</main>
+
+<script>
+    const API_BASE_URL = "http://127.0.0.1:8000/api";
+    const log = (source, data) => {
+        const output = document.getElementById('api-response');
+        const formattedMessage = `[${source}] ${new Date().toLocaleTimeString()}\n${JSON.stringify(data, null, 2)}\n\n`;
+        output.textContent = formattedMessage + output.textContent;
+        console.log(source, data);
+    };
+
+    let tokens = {
+        admin: null,
+        limited: null,
+    };
+    
+    const adminTaskList = document.getElementById('admin-task-list');
+    const limitedTaskList = document.getElementById('limited-task-list');
+
+    // --- WebSocket Connection ---
+    const chatSocket = new WebSocket('ws://127.0.0.1:8000/ws/tasks/');
+
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        log('WebSocket', data); // Log incoming WebSocket messages
+        
+        const action = data.action;
+        const task = data.task;
+
+        switch (action) {
+            case 'new_task':
+                // เมื่อมี task ใหม่ ให้แสดงที่ฝั่ง Admin และอาจจะที่ฝั่ง Limited ถ้าเขาเป็นคนสร้าง
+                addOrUpdateAdminTask(task);
+                addOrUpdateLimitedTask(task);
+                break;
+            case 'task_approved':
+            case 'task_progress_update':
+            case 'task_rejected':
+                 // อัปเดตทั้งสองฝั่ง เพราะสถานะเปลี่ยน
+                addOrUpdateAdminTask(task);
+                addOrUpdateLimitedTask(task);
+                break;
+        }
+    };
+
+    chatSocket.onopen = function(e) { log('WebSocket', { status: 'Connected' }); };
+    chatSocket.onclose = function(e) { log('WebSocket', { status: 'Disconnected' }); };
+
+    // --- Render Functions ---
+    function renderTaskProgress(subtasks) {
+        if (!subtasks || subtasks.length === 0) return '';
+        let progressHTML = '<div class="progress-bar">';
+        subtasks.forEach(st => {
+            const statusClass = st.status === 'COMPLETED' ? 'status-completed' : 'status-pending';
+            progressHTML += `<span class="${statusClass}">${st.title.split(' ')[1]}: ${st.status}</span>`;
+        });
+        progressHTML += '</div>';
+        return progressHTML;
+    }
+
+    function addOrUpdateAdminTask(task) {
+        let taskEl = document.getElementById(`admin-task-${task.id}`);
+        if (!taskEl) {
+            taskEl = document.createElement('div');
+            taskEl.className = 'task-item';
+            taskEl.id = `admin-task-${task.id}`;
+            // แก้ไข: เพิ่ม Task ต่อจาก h3 แทนการเขียนทับทั้งหมด
+            adminTaskList.appendChild(taskEl);
+        }
+
+        let approveBtn = `<button class="approve-btn" data-id="${task.id}">อนุมัติ</button>`;
+        if (task.status !== 'PENDING_APPROVAL') {
+            approveBtn = '';
+        }
+
+        taskEl.innerHTML = `
+            <header><strong>Task #${task.id}:</strong> ${task.title}</header>
+            <p>Status: <strong>${task.status}</strong> | Requester: ${task.requester.username}</p>
+            ${renderTaskProgress(task.subtasks)}
+            ${approveBtn}
+        `;
+    }
+
+    function addOrUpdateLimitedTask(task) {
+        // Logic เดิม: แสดง Task ที่ฝั่ง Limited เฉพาะเมื่อเขาเป็นคนสร้าง
+        if(task.requester.username !== document.querySelector('#login-limited-form input[name="username"]').value) {
+            return;
+        }
+
+        let taskEl = document.getElementById(`limited-task-${task.id}`);
+        if (!taskEl) {
+            taskEl = document.createElement('div');
+            taskEl.className = 'task-item';
+            taskEl.id = `limited-task-${task.id}`;
+            limitedTaskList.appendChild(taskEl);
+        }
+
+        let workBtns = '';
+        if (task.status === 'IN_PROGRESS' && task.subtasks) {
+            task.subtasks.forEach(st => {
+                if (st.status === 'PENDING') {
+                     workBtns += `<button class="work-btn" data-model="${st.content_type_model}" data-id="${st.object_id}">Finish: ${st.title}</button> `;
+                }
+            });
+        }
+        
+        let statusMessage = `Status: <strong>${task.status}</strong>`;
+        if(task.status === 'REJECTED') {
+            statusMessage += `<br><small style="color: red;">Reason: ${task.rejection_reason || 'N/A'}</small>`;
+        }
+
+
+        taskEl.innerHTML = `
+             <header><strong>Task #${task.id}:</strong> ${task.title}</header>
+             <p>${statusMessage}</p>
+             ${renderTaskProgress(task.subtasks)}
+             ${workBtns}
+        `;
+    }
+
+    // --- API Call Functions ---
+    async function apiRequest(endpoint, method, token, body=null) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const config = { method, headers };
+        if(body) config.body = JSON.stringify(body);
+        
+        try {
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+            // จัดการกับ response ที่ไม่มี content (เช่น 204 No Content)
+            if (response.status === 204) {
+                log(`API ${method}`, {endpoint, request: body, response: {status: 204}});
+                return {status: 204};
+            }
+            const responseData = await response.json();
+            log(`API ${method}`, {endpoint, request: body, response: responseData});
+            if (!response.ok) throw responseData;
+            return responseData;
+        } catch (error) {
+            log(`API ${method} ERROR`, {endpoint, error});
+            throw error;
+        }
+    }
+
+    // --- [เพิ่มฟังก์ชันนี้] ---
+    /**
+     * ดึงข้อมูล Task ทั้งหมดที่มีอยู่มาแสดงผลหลังจาก Login
+     * @param {string} token - JWT Token ของผู้ใช้
+     */
+    async function fetchInitialTasks(token) {
+        if (!token) return;
+
+        // ล้างรายการ Task เดิมออกก่อน เพื่อป้องกันข้อมูลซ้ำซ้อนหากมีการ Login ใหม่
+        adminTaskList.innerHTML = '<h3>New Tasks for Approval</h3>';
+        limitedTaskList.innerHTML = '<h3>My Tasks</h3>';
+
+        try {
+            log('API GET', { endpoint: '/tasks/', message: 'Fetching initial tasks...' });
+            const tasks = await apiRequest('/tasks/', 'GET', token);
+            
+            if (Array.isArray(tasks)) {
+                // วนลูปแสดงผลทุก Task ที่ได้รับมา
+                // ฟังก์ชัน addOrUpdate... จะมี logic ภายในเพื่อกรองเองว่าควรแสดงที่ไหน
+                tasks.forEach(task => {
+                    addOrUpdateAdminTask(task);
+                    addOrUpdateLimitedTask(task);
+                });
+            }
+        } catch (error) {
+            log('Initial Fetch ERROR', { error });
+            alert('ไม่สามารถดึงข้อมูล Task เริ่มต้นได้');
+        }
+    }
+    
+    // --- [แก้ไขส่วนนี้] ---
+    // Login Handlers
+    document.getElementById('login-limited-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try {
+            const response = await apiRequest('/token/', 'POST', null, data); 
+            if (response && response.access) {
+                tokens.limited = response.access;
+                document.getElementById('token-limited').textContent = tokens.limited;
+                // เรียกใช้ฟังก์ชันเพื่อดึง Task ทั้งหมดมาแสดง
+                fetchInitialTasks(tokens.limited);
+            }
+        } catch(error) {
+            alert('Login (Limited) ผิดพลาด กรุณาตรวจสอบ username/password');
+        }
+    });
+
+    document.getElementById('login-admin-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try {
+            const response = await apiRequest('/token/', 'POST', null, data);
+            if (response && response.access) {
+                tokens.admin = response.access;
+                document.getElementById('token-admin').textContent = tokens.admin;
+                // เรียกใช้ฟังก์ชันเพื่อดึง Task ทั้งหมดมาแสดง
+                fetchInitialTasks(tokens.admin);
+            }
+        } catch(error) {
+            alert('Login (Admin) ผิดพลาด กรุณาตรวจสอบ username/password');
+        }
+    });
+    // --- [สิ้นสุดส่วนที่แก้ไข] ---
+
+    // Create Task (ADMIN_LIMITED)
+    document.getElementById('create-task-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!tokens.limited) { alert('กรุณา Login เป็น ADMIN_LIMITED ก่อน'); return; }
+        const title = document.getElementById('task-title').value;
+        await apiRequest('/tasks/', 'POST', tokens.limited, { title });
+        e.target.reset();
+    });
+
+    // Approve Task (ADMIN)
+    adminTaskList.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('approve-btn')) {
+            if (!tokens.admin) { alert('กรุณา Login เป็น ADMIN ก่อน'); return; }
+            const taskId = e.target.dataset.id;
+            await apiRequest(`/tasks/${taskId}/approve/`, 'POST', tokens.admin);
+        }
+    });
+
+    // Simulate Work (ADMIN_LIMITED)
+    limitedTaskList.addEventListener('click', async (e) => {
+         if (e.target.classList.contains('work-btn')) {
+            if (!tokens.limited) { alert('กรุณา Login เป็น ADMIN_LIMITED ก่อน'); return; }
+            const model = e.target.dataset.model;
+            const id = e.target.dataset.id;
+            let endpoint = model === 'customerprofile' ? `/data/customers/${id}/` : `/data/vehicles/${id}/`;
+            // PATCH with dummy data to trigger the signal
+            await apiRequest(endpoint, 'PATCH', tokens.limited, { 'description': `Work done at ${new Date()}`});
+         }
+    });
+</script>
+</body>
+</html>
