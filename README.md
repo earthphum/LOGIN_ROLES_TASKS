@@ -1,6 +1,7 @@
 # ระบบจัดการ Task แบบ Real-time (Django + Channels)
 
 โปรเจกต์นี้คือระบบจัดการงาน (Task Management) ที่สร้างขึ้นด้วย Django โดยมีความสามารถในการอัปเดตสถานะของงานต่างๆ แบบ Real-time ผ่านเทคโนโลยี WebSocket ทำให้ผู้ใช้งานที่เกี่ยวข้องเห็นความคืบหน้าได้ทันทีโดยไม่ต้องรีเฟรชหน้าจอ
+! ทดสอบที่ frontend_v2
 
 ## ✨ คุณสมบัติหลัก (Features)
 
@@ -40,10 +41,9 @@
 
 ### 2. การตั้งค่าฝั่ง Backend (Django)
 
-1.  **Clone โปรเจกต์:**
+1.  **Clone Project:**
     ```bash
-    git clone <your-repository-url>
-    cd <your-project-folder>
+    #โคลนโปรเจคเลย
     ```
 
 2.  **สร้างและเปิดใช้งาน Virtual Environment:**
@@ -52,8 +52,6 @@
     python -m venv .venv
     # เปิดใช้งาน (macOS/Linux)
     source .venv/bin/activate
-    # เปิดใช้งาน (Windows)
-    .\venv\Scripts\activate
     ```
 
 3.  **ติดตั้ง Dependencies:**
@@ -72,6 +70,7 @@
     ```bash
     python manage.py createsuperuser
     # จากนั้นเข้าไปใน Admin Panel ([http://127.0.0.1:8000/admin](http://127.0.0.1:8000/admin)) เพื่อสร้าง User อีก 2 คน
+    # หรือใช้ api ก็ได้ /api/users/admin/manage/ ละ post แต่ต้องไปขอ /api/token/ก่อนนะ เอา token admin ใส่ จากนั้นก็ ใส่body username ,password , "role":"ADMIN_LIMITED" หรือ "ADMIN" 
     # และกำหนด Role ให้ถูกต้อง
     ```
 
